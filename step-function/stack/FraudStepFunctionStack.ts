@@ -220,7 +220,7 @@ export default class FraudStepFunctionStack extends Stack {
         Resource: "arn:aws:states:::http:invoke",
         Parameters: {
           ApiEndpoint:
-            "https://oondk3w0w1.execute-api.ap-southeast-2.amazonaws.com/",
+           process.env.FRAUD_URL,
           Authentication: {
             ConnectionArn: fraudAPIConnection.connectionArn,
           },
