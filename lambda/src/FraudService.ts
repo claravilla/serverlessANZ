@@ -1,14 +1,22 @@
+import dotenv from 'dotenv'
+import { Logger} from '@aws-lambda-powertools/logger';
 import { dynamoLookUp, dynamoCreate, putEvent } from "./AwsClients";
 import axios from "axios";
 import {
   FraudCheckedEvent,
   FraudEvent,
   FraudResult,
-  FraudStatus,
 } from "./Types";
 
+
 export const handler = async (event: any) => {
+
+  dotenv.config();
+
   const orderDetails: FraudEvent = JSON.parse(event.body);
+
+  const logger = new Logger();
+
 
   //1.  Validate your event
   if (
@@ -35,14 +43,14 @@ export const handler = async (event: any) => {
   // 2. Check if the order exist in Dynamo
 
   let fraudEvent: FraudCheckedEvent;
-  let fraudStatus: FraudStatus;
+  let fraudStatus: string;
 
   try {
     const dbResult = await dynamoLookUp(orderNumber);
     // 2a. if yes, set the bus event to the stored status and go to step 6
     if (dbResult !== "No record found") {
       const status = dbResult.status.S as unknown;
-      fraudStatus = status as FraudStatus;
+      fraudStatus = status as string;
       fraudEvent = {
         orderNumber: orderNumber,
         fraudStatusCheck: fraudStatus,
@@ -59,8 +67,9 @@ export const handler = async (event: any) => {
       };
 
       // 4. call fraud vendor
+      logger.info("fraud url", process.env.FRAUD_URL as string);
       const result = await axios.post(
-        "https://oondk3w0w1.execute-api.ap-southeast-2.amazonaws.com/",
+        process.env.FRAUD_URL as string,
         fraudRequest
       );
 
@@ -69,6 +78,7 @@ export const handler = async (event: any) => {
       if (! fraudCheckResult.status) {
         return ("Fraud check could not be performed")
       }
+      logger.info("Fraud check call completed");
       
       fraudStatus = fraudCheckResult.status;
 
@@ -85,6 +95,7 @@ export const handler = async (event: any) => {
 
     return { orderNumber: orderNumber, status: fraudStatus };
   } catch (error) {
+    logger.info(`Something went wrong: ${error}`)
     throw new Error(`Something went wrong: ${error}`);
   }
 };

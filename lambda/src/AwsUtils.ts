@@ -10,7 +10,7 @@ import {
   PutEventsCommand,
   PutEventsRequest,
 } from "@aws-sdk/client-eventbridge";
-import { FraudCheckedEvent, FraudStatus } from "./Types";
+import { FraudCheckedEvent } from "./Types";
 
 export const clientDynamo = new DynamoDBClient({ region: process.env.REGION });
 export const clientEventBridge = new EventBridgeClient({
@@ -40,7 +40,7 @@ export const dynamoLookUp = async (orderNumber: string) => {
 
 export const dynamoCreate = async (
   orderNumber: string,
-  status: FraudStatus
+  status: string
 ) => {
   const input: PutItemInput = {
     TableName: "fraud-order-table-lambda",

@@ -5,17 +5,12 @@ export interface FraudEvent {
   currency: string;
 }
 
-export enum FraudStatus {
-  APPROVED = "approved",
-  REJECTED = "rejected",
-}
-
 export interface FraudResult {
-  status: FraudStatus;
+  status: string;
 }
 
 export interface FraudCheckedEvent {
   orderNumber: string;
-  fraudStatusCheck: FraudStatus;
+  fraudStatusCheck: string;
 }
 
