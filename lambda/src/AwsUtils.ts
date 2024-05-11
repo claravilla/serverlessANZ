@@ -34,7 +34,7 @@ export const dynamoLookUp = async (orderNumber: string) => {
     }
     return result.Item;
   } catch (error) {
-    throw new Error(`error using dynamo: ${error}`);
+    throw new Error(`Error with get item in Dynamo: ${error}`);
   }
 };
 
@@ -57,7 +57,7 @@ export const dynamoCreate = async (
   try {
     await clientDynamo.send(command);
   } catch (error) {
-    throw new Error(`error using dynamo: ${error}`);
+    throw new Error(`Error creating item in Dynamo: ${error}`);
   }
 };
 
@@ -76,7 +76,7 @@ export const putEvent = async (event: FraudCheckedEvent) => {
   try {
     await clientEventBridge.send(command);
   } catch (error) {
-    throw new Error(`error putting event to the bus: ${error}`);
+    throw new Error(`Error putting event to the bus: ${error}`);
   }
 };
 

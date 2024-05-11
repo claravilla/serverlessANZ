@@ -4,8 +4,9 @@ import { dynamoLookUp, dynamoCreate, putEvent } from "./AwsUtils";
 import axios from "axios";
 import { FraudCheckedEvent, FraudEvent, FraudResult } from "./Types";
 
+dotenv.config();
+
 export const handler = async (event: any) => {
-  dotenv.config();
 
   const orderDetails: FraudEvent = JSON.parse(event.body);
 
@@ -19,7 +20,7 @@ export const handler = async (event: any) => {
     !orderDetails.amount ||
     !orderDetails.currency
   ) {
-    throw new Error("order details missing");
+    throw new Error("Order details missing");
   }
 
   const {
@@ -73,7 +74,7 @@ export const handler = async (event: any) => {
       const fraudCheckResult: FraudResult = result.data;
 
       if (!fraudCheckResult.status) {
-        return "Fraud check could not be performed";
+        throw new Error ("Fraud check could not be performed");
       }
 
       logger.info("Fraud check call completed");
