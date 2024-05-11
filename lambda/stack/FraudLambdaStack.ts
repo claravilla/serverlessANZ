@@ -1,4 +1,3 @@
-import dotenv from 'dotenv'
 import { App, CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
 import { HttpApi, HttpMethod } from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
@@ -16,8 +15,6 @@ import {
 export default class FraudLambdaStack extends Stack {
   constructor(scope: App, id: string, props?: StackProps) {
     super(scope, id, props);
-
-    dotenv.config()
 
     const { account, region } = this;
 

@@ -46,14 +46,11 @@ export default class FraudStepFunctionStack extends Stack {
 
     const { account, region } = this;
 
-    console.log(process.env.FRAUD_URL);
-
     const { FRAUD_URL: fraudUrl } = process.env;
-    console.log(fraudUrl);
 
-    // if (fraudUrl === undefined) {
-    //   throw new Error("The fraud url is undefinded");
-    // }
+    if (fraudUrl === undefined) {
+      throw new Error("The fraud url is undefinded");
+    }
 
     // ----- Lambda ------
 
@@ -219,8 +216,7 @@ export default class FraudStepFunctionStack extends Stack {
         Type: "Task",
         Resource: "arn:aws:states:::http:invoke",
         Parameters: {
-          ApiEndpoint:
-           process.env.FRAUD_URL,
+          ApiEndpoint: process.env.FRAUD_URL,
           Authentication: {
             ConnectionArn: fraudAPIConnection.connectionArn,
           },
@@ -364,3 +360,4 @@ export default class FraudStepFunctionStack extends Stack {
     });
   }
 }
+

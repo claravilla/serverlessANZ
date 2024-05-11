@@ -1,24 +1,18 @@
-import dotenv from 'dotenv'
-import { Logger} from '@aws-lambda-powertools/logger';
-import { dynamoLookUp, dynamoCreate, putEvent } from "./AwsClients";
+import dotenv from "dotenv";
+import { Logger } from "@aws-lambda-powertools/logger";
+import { dynamoLookUp, dynamoCreate, putEvent } from "./AwsUtils";
 import axios from "axios";
-import {
-  FraudCheckedEvent,
-  FraudEvent,
-  FraudResult,
-} from "./Types";
-
+import { FraudCheckedEvent, FraudEvent, FraudResult } from "./Types";
 
 export const handler = async (event: any) => {
-
   dotenv.config();
 
   const orderDetails: FraudEvent = JSON.parse(event.body);
 
   const logger = new Logger();
 
-
   //1.  Validate your event
+
   if (
     !orderDetails.orderNumber ||
     !orderDetails.countryCode ||
@@ -47,7 +41,9 @@ export const handler = async (event: any) => {
 
   try {
     const dbResult = await dynamoLookUp(orderNumber);
+
     // 2a. if yes, set the bus event to the stored status and go to step 6
+
     if (dbResult !== "No record found") {
       const status = dbResult.status.S as unknown;
       fraudStatus = status as string;
@@ -59,6 +55,7 @@ export const handler = async (event: any) => {
       // 2b. if not, proceed with fraud check
 
       // 3. create request
+
       const fraudRequest = {
         orderNumber: orderNumber,
         country: countryCode,
@@ -67,7 +64,7 @@ export const handler = async (event: any) => {
       };
 
       // 4. call fraud vendor
-      logger.info("fraud url", process.env.FRAUD_URL as string);
+
       const result = await axios.post(
         process.env.FRAUD_URL as string,
         fraudRequest
@@ -75,15 +72,20 @@ export const handler = async (event: any) => {
 
       const fraudCheckResult: FraudResult = result.data;
 
-      if (! fraudCheckResult.status) {
-        return ("Fraud check could not be performed")
+      if (!fraudCheckResult.status) {
+        return "Fraud check could not be performed";
       }
+
       logger.info("Fraud check call completed");
-      
+
       fraudStatus = fraudCheckResult.status;
 
       // 5. Create record in Dynamo
+
       await dynamoCreate(orderNumber, fraudStatus);
+
+      // 6.a set the bus event
+
       fraudEvent = {
         orderNumber: orderNumber,
         fraudStatusCheck: fraudStatus,
@@ -91,13 +93,12 @@ export const handler = async (event: any) => {
     }
 
     // 6. Put event to the bus
+
     await putEvent(fraudEvent);
 
     return { orderNumber: orderNumber, status: fraudStatus };
   } catch (error) {
-    logger.info(`Something went wrong: ${error}`)
+    logger.info(`Something went wrong: ${error}`);
     throw new Error(`Something went wrong: ${error}`);
   }
 };
-
-
