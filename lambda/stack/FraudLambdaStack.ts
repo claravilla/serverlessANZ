@@ -1,16 +1,17 @@
 import { App, CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
-import { HttpApi, HttpMethod } from "aws-cdk-lib/aws-apigatewayv2";
-import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { AttributeType, Table } from "aws-cdk-lib/aws-dynamodb";
-import path from "path";
 import {
   Effect,
   Policy,
   PolicyDocument,
   PolicyStatement,
 } from "aws-cdk-lib/aws-iam";
+import { Rule, RuleTargetInput } from "aws-cdk-lib/aws-events";
+import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
+import path from "path";
 
 export default class FraudLambdaStack extends Stack {
   constructor(scope: App, id: string, props?: StackProps) {
@@ -25,25 +26,25 @@ export default class FraudLambdaStack extends Stack {
       entry: path.join(__dirname, "/../src/fraudService.ts"),
     });
 
-    const apiIntegration = new HttpLambdaIntegration(
-      "serverless-fraud-lambda-api-integration",
-      lambda
-    );
-
-    const api = new HttpApi(this, "ServerlessFraudLambdaAPI");
-
-    api.addRoutes({
-      path: "/",
-      methods: [HttpMethod.POST],
-      integration: apiIntegration,
-    });
-
     const orderTable = new Table(this, "fraud-order-table-lambda", {
       tableName: "fraud-order-table-lambda",
       partitionKey: {
         name: "orderNumber",
         type: AttributeType.STRING,
       },
+    });
+
+    new Rule(this, "serverlessLambdaRule", {
+      ruleName: "serverless-lambda-trigger-rule",
+      eventPattern: {
+        source: ["service-order"],
+        detailType: ["order.created"],
+      },
+      targets: [
+        new LambdaFunction(lambda, {
+          event: RuleTargetInput.fromEventPath("$.detail"),
+        }),
+      ],
     });
 
     const lambdaPolicy = new Policy(this, "LambdaPolicy", {
@@ -66,11 +67,5 @@ export default class FraudLambdaStack extends Stack {
     });
 
     lambda.role?.attachInlinePolicy(lambdaPolicy);
-
-    new CfnOutput(this, "apiURL", {
-      value: api.url as string,
-    });
   }
 }
-
-

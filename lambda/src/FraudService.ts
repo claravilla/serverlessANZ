@@ -2,23 +2,25 @@ import dotenv from "dotenv";
 import { Logger } from "@aws-lambda-powertools/logger";
 import { dynamoLookUp, dynamoCreate, putEvent } from "./AwsUtils";
 import axios from "axios";
-import { FraudCheckedEvent, FraudEvent, FraudResult } from "./Types";
+import {
+  FraudCheckedEvent,
+  FraudEvent,
+  FraudRequest,
+  FraudResult,
+} from "./Types";
 
 dotenv.config();
 
-export const handler = async (event: any) => {
-
-  const orderDetails: FraudEvent = JSON.parse(event.body);
-
+export const handler = async (event: FraudEvent) => {
   const logger = new Logger();
 
   //1.  Validate your event
 
   if (
-    !orderDetails.orderNumber ||
-    !orderDetails.countryCode ||
-    !orderDetails.amount ||
-    !orderDetails.currency
+    !event.orderNumber ||
+    !event.countryCode ||
+    !event.amount ||
+    !event.currency
   ) {
     throw new Error("Order details missing");
   }
@@ -31,9 +33,9 @@ export const handler = async (event: any) => {
   }: {
     orderNumber: string;
     countryCode: string;
-    amount: number;
+    amount: string;
     currency: string;
-  } = orderDetails;
+  } = event;
 
   // 2. Check if the order exist in Dynamo
 
@@ -57,7 +59,7 @@ export const handler = async (event: any) => {
 
       // 3. create request
 
-      const fraudRequest = {
+      const fraudRequest: FraudRequest = {
         orderNumber: orderNumber,
         country: countryCode,
         orderTotal: Number(amount),
@@ -74,7 +76,7 @@ export const handler = async (event: any) => {
       const fraudCheckResult: FraudResult = result.data;
 
       if (!fraudCheckResult.status) {
-        throw new Error ("Fraud check could not be performed");
+        throw new Error("Fraud check could not be performed");
       }
 
       logger.info("Fraud check call completed");
@@ -97,7 +99,7 @@ export const handler = async (event: any) => {
 
     await putEvent(fraudEvent);
 
-    return { orderNumber: orderNumber, status: fraudStatus };
+    return;
   } catch (error) {
     logger.info(`Something went wrong: ${error}`);
     throw new Error(`Something went wrong: ${error}`);
