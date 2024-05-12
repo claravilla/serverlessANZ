@@ -1,13 +1,11 @@
 import { FraudEvent } from "./Types";
 
-export const handler = async (event: any) => {
-  const orderDetails: FraudEvent = event.body;
-
+export const handler = async (event: FraudEvent) => {
   if (
-    !orderDetails.orderNumber ||
-    !orderDetails.countryCode ||
-    !orderDetails.amount ||
-    !orderDetails.currency
+    !event.orderNumber ||
+    !event.countryCode ||
+    !event.amount ||
+    !event.currency
   ) {
     return {
       statusCode: 400,
@@ -22,9 +20,9 @@ export const handler = async (event: any) => {
   }: {
     orderNumber: string;
     countryCode: string;
-    amount: number;
+    amount: string;
     currency: string;
-  } = orderDetails;
+  } = event;
 
   return {
     statusCode: 200,

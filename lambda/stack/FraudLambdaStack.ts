@@ -1,4 +1,4 @@
-import { App, CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
+import { App, Duration, Stack, StackProps } from "aws-cdk-lib";
 
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";

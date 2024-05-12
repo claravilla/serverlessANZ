@@ -7,7 +7,7 @@ export interface FraudEvent {
 
 export interface FraudRequest {
   orderNumber: string;
-  country: string;
+  country: string
   orderTotal: number;
   currency: string;
 }

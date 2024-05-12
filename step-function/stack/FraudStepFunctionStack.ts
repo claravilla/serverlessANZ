@@ -1,6 +1,5 @@
 import {
   App,
-  CfnOutput,
   Duration,
   RemovalPolicy,
   SecretValue,
@@ -29,6 +28,7 @@ import {
   Condition,
   CustomState,
   DefinitionBody,
+  Fail,
   JsonPath,
   LogLevel,
   Pass,
@@ -36,9 +36,14 @@ import {
   StateMachineType,
   TaskInput,
 } from "aws-cdk-lib/aws-stepfunctions";
-import { RestApi, StepFunctionsIntegration } from "aws-cdk-lib/aws-apigateway";
-import { Authorization, Connection } from "aws-cdk-lib/aws-events";
+import {
+  Authorization,
+  Connection,
+  Rule,
+  RuleTargetInput,
+} from "aws-cdk-lib/aws-events";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
+import { SfnStateMachine } from "aws-cdk-lib/aws-events-targets";
 
 export default class FraudStepFunctionStack extends Stack {
   constructor(scope: App, id: string, props?: StackProps) {
@@ -47,6 +52,7 @@ export default class FraudStepFunctionStack extends Stack {
     const { account, region } = this;
 
     const { FRAUD_URL: fraudUrl } = process.env;
+
 
     if (fraudUrl === undefined) {
       throw new Error("The fraud url is undefinded");
@@ -102,27 +108,13 @@ export default class FraudStepFunctionStack extends Stack {
       resultPath: "$.stateData.eventHandlerTask",
     });
 
-    const invalidEvent = new Pass(this, "InvalidEvent", {
-      parameters: {
-        status: 400,
-        response: JsonPath.stringAt(
-          "$.stateData.eventHandlerTask.payload.response"
-        ),
-      },
+    const invalidEvent = new Fail(this, "InvalidEvent", {
+      errorPath: JsonPath.stringAt(
+        "$.stateData.eventHandlerTask.payload.response"
+      ),
     });
 
-    const fraudCheckResponse = new Pass(this, "FraudCheckResponse", {
-      parameters: {
-        orderNumber: JsonPath.stringAt(
-          "$.stateData.eventHandlerTask.payload.response.orderNumber"
-        ),
-        status: JsonPath.stringAt(
-          "$.stateData.callFraudServiceTask.payload.status"
-        ),
-      },
-    });
-
-    const dynamoCheckTask = new DynamoGetItem(this, "GetItem", {
+    const dynamoCheckTask = new DynamoGetItem(this, "CheckOrderFraudStatus", {
       key: {
         orderNumber: DynamoAttributeValue.fromString(
           JsonPath.stringAt(
@@ -132,29 +124,6 @@ export default class FraudStepFunctionStack extends Stack {
       },
       table: orderTable,
       resultPath: "$.stateData.dynamoCheckTask",
-    }).addRetry({
-      interval: Duration.seconds(2),
-      backoffRate: 2,
-      errors: [
-        "ServiceUnavailable",
-        "InternalServerError",
-        "ThrottlingException",
-      ],
-    });
-
-    const dynamoCreateTask = new DynamoPutItem(this, "PutItem", {
-      item: {
-        orderNumber: DynamoAttributeValue.fromString(
-          JsonPath.stringAt(
-            "$.stateData.eventHandlerTask.payload.response.orderNumber"
-          )
-        ),
-        status: DynamoAttributeValue.fromString(
-          JsonPath.stringAt("$.stateData.callFraudServiceTask.payload.status")
-        ),
-      },
-      table: orderTable,
-      resultPath: "$.stateData.dynamoCreateTask",
     }).addRetry({
       interval: Duration.seconds(2),
       backoffRate: 2,
@@ -189,14 +158,32 @@ export default class FraudStepFunctionStack extends Stack {
       errors: ["InternalFailure", "ServiceUnavailable", "ThrottlingException"],
     });
 
-    const newOrderBranchFraudCheckCompleted = dynamoCreateTask
-      .next(putEvent)
-      .next(fraudCheckResponse);
-
-    const fraudCheckFailed = new Pass(this, "FraudCheckFailed", {
-      parameters: {
-        response: "Fraud check could not be performed",
+    const dynamoCreateTask = new DynamoPutItem(this, "StoreFraudCheck", {
+      item: {
+        orderNumber: DynamoAttributeValue.fromString(
+          JsonPath.stringAt(
+            "$.stateData.eventHandlerTask.payload.response.orderNumber"
+          )
+        ),
+        status: DynamoAttributeValue.fromString(
+          JsonPath.stringAt("$.stateData.callFraudServiceTask.payload.status")
+        ),
       },
+      table: orderTable,
+      resultPath: "$.stateData.dynamoCreateTask",
+    }).addRetry({
+      interval: Duration.seconds(2),
+      backoffRate: 2,
+      errors: [
+        "ServiceUnavailable",
+        "InternalServerError",
+        "ThrottlingException",
+      ],
+    }).next(putEvent)
+
+
+    const fraudCheckFailed = new Fail (this, "FraudCheckFailed", {
+      errorPath: JsonPath.stringAt("$.stateData.callFraudServiceTask.payload.error.message")
     });
 
     const hasFraudCheckCompletedSuccessfully = new Choice(
@@ -209,14 +196,14 @@ export default class FraudStepFunctionStack extends Stack {
         ),
         fraudCheckFailed
       )
-      .otherwise(newOrderBranchFraudCheckCompleted);
+      .otherwise(dynamoCreateTask);
 
-    const callFraudServiceTask = new CustomState(this, "callFraudServiceTask", {
+    const callFraudServiceTask = new CustomState(this, "callFraudService", {
       stateJson: {
         Type: "Task",
         Resource: "arn:aws:states:::http:invoke",
         Parameters: {
-          ApiEndpoint: process.env.FRAUD_URL,
+          ApiEndpoint: fraudUrl,
           Authentication: {
             ConnectionArn: fraudAPIConnection.connectionArn,
           },
@@ -295,15 +282,20 @@ export default class FraudStepFunctionStack extends Stack {
       },
     });
 
-    // ---- API ----
+    //--- Event Bridge Rule ---
 
-    const api = new RestApi(this, "ServerlessFraudStepFunctionApi", {
-      restApiName: "serverless-fraud-step-function-api",
+    new Rule(this, "serverlessStateMachineRule", {
+      ruleName: "serverless-state-machine-trigger-rule",
+      eventPattern: {
+        source: ["service-order"],
+        detailType: ["order.created"],
+      },
+      targets: [
+        new SfnStateMachine(stateMachine, {
+          input: RuleTargetInput.fromEventPath("$.detail"),
+        }),
+      ],
     });
-    api.root.addMethod(
-      "POST",
-      StepFunctionsIntegration.startExecution(stateMachine)
-    );
 
     // ---- State Machine Policy ----
 
@@ -354,10 +346,5 @@ export default class FraudStepFunctionStack extends Stack {
     });
 
     stateMachine.role.attachInlinePolicy(stateMachinePolicy);
-
-    new CfnOutput(this, "apiURL", {
-      value: api.url as string,
-    });
   }
 }
-
