@@ -51,7 +51,8 @@ export default class FraudStepFunctionStack extends Stack {
 
     const { account, region } = this;
 
-    const { FRAUD_URL: fraudUrl } = process.env;
+    // const { FRAUD_URL: fraudUrl } = process.env;
+    const fraudUrl = "https://oondk3w0w1.execute-api.ap-southeast-2.amazonaws.com/"
 
 
     if (fraudUrl === undefined) {
@@ -100,7 +101,7 @@ export default class FraudStepFunctionStack extends Stack {
 
     // ----- Step Function tasks ----
 
-    const eventHandlerTask = new LambdaInvoke(this, "EventHandlerTask", {
+    const eventHandlerTask = new LambdaInvoke(this, "EventHandler", {
       lambdaFunction: eventHandlerLambda,
       resultSelector: {
         "payload.$": "$.Payload",
@@ -108,13 +109,13 @@ export default class FraudStepFunctionStack extends Stack {
       resultPath: "$.stateData.eventHandlerTask",
     });
 
-    const invalidEvent = new Fail(this, "InvalidEvent", {
+    const invalidEventTask = new Fail(this, "InvalidEvent", {
       errorPath: JsonPath.stringAt(
         "$.stateData.eventHandlerTask.payload.response"
       ),
     });
 
-    const dynamoCheckTask = new DynamoGetItem(this, "CheckOrderFraudStatus", {
+    const checkOrderFraudStatusTask = new DynamoGetItem(this, "CheckOrderFraudStatus", {
       key: {
         orderNumber: DynamoAttributeValue.fromString(
           JsonPath.stringAt(
@@ -123,7 +124,7 @@ export default class FraudStepFunctionStack extends Stack {
         ),
       },
       table: orderTable,
-      resultPath: "$.stateData.dynamoCheckTask",
+      resultPath: "$.stateData.checkOrderFraudStatusTask",
     }).addRetry({
       interval: Duration.seconds(2),
       backoffRate: 2,
@@ -134,7 +135,7 @@ export default class FraudStepFunctionStack extends Stack {
       ],
     });
 
-    const putEvent = new EventBridgePutEvents(this, "PutEvent", {
+    const putEventTask = new EventBridgePutEvents(this, "PutEvent", {
       entries: [
         {
           detail: TaskInput.fromObject({
@@ -158,7 +159,7 @@ export default class FraudStepFunctionStack extends Stack {
       errors: ["InternalFailure", "ServiceUnavailable", "ThrottlingException"],
     });
 
-    const dynamoCreateTask = new DynamoPutItem(this, "StoreFraudCheck", {
+    const storeFraudCheckTask = new DynamoPutItem(this, "StoreFraudCheck", {
       item: {
         orderNumber: DynamoAttributeValue.fromString(
           JsonPath.stringAt(
@@ -170,7 +171,7 @@ export default class FraudStepFunctionStack extends Stack {
         ),
       },
       table: orderTable,
-      resultPath: "$.stateData.dynamoCreateTask",
+      resultPath: "$.stateData.storeFraudCheckTask",
     }).addRetry({
       interval: Duration.seconds(2),
       backoffRate: 2,
@@ -179,11 +180,11 @@ export default class FraudStepFunctionStack extends Stack {
         "InternalServerError",
         "ThrottlingException",
       ],
-    }).next(putEvent)
+    }).next(putEventTask)
 
 
-    const fraudCheckFailed = new Fail (this, "FraudCheckFailed", {
-      errorPath: JsonPath.stringAt("$.stateData.callFraudServiceTask.payload.error.message")
+    const fraudCheckFailedTask = new Fail (this, "FraudCheckFailed", {
+      cause: "Fraud check did not return a status"
     });
 
     const hasFraudCheckCompletedSuccessfully = new Choice(
@@ -194,9 +195,9 @@ export default class FraudStepFunctionStack extends Stack {
         Condition.isNotPresent(
           "$.stateData.callFraudServiceTask.payload.status"
         ),
-        fraudCheckFailed
+        fraudCheckFailedTask
       )
-      .otherwise(dynamoCreateTask);
+      .otherwise(storeFraudCheckTask);
 
     const callFraudServiceTask = new CustomState(this, "callFraudService", {
       stateJson: {
@@ -236,27 +237,27 @@ export default class FraudStepFunctionStack extends Stack {
       })
       .next(hasFraudCheckCompletedSuccessfully);
 
-    const setEventForExistingOrders = new Pass(
+    const setEventForExistingOrdersTask = new Pass(
       this,
       "setEventForExistingOrders",
       {
         parameters: {
           status: JsonPath.stringAt(
-            "$.stateData.dynamoCheckTask.Item.status.S"
+            "$.stateData.checkOrderFraudStatusTask.Item.status.S"
           ),
         },
         resultPath: "$.stateData.callFraudServiceTask.payload",
       }
-    ).next(putEvent);
+    ).next(putEventTask);
 
     const isOrderAlreadyChecked = new Choice(this, "isOrderAlreadyChecked")
       .when(
-        Condition.isNotPresent("$.stateData.dynamoCheckTask.Item"),
+        Condition.isNotPresent("$.stateData.checkOrderFraudStatusTask.Item"),
         callFraudServiceTask
       )
-      .otherwise(setEventForExistingOrders);
+      .otherwise(setEventForExistingOrdersTask);
 
-    const validEventBranch = dynamoCheckTask.next(isOrderAlreadyChecked);
+    const validEventBranch = checkOrderFraudStatusTask.next(isOrderAlreadyChecked);
 
     const isEventValid = new Choice(this, "isEventValid")
       .when(
@@ -266,7 +267,7 @@ export default class FraudStepFunctionStack extends Stack {
         ),
         validEventBranch
       )
-      .otherwise(invalidEvent);
+      .otherwise(invalidEventTask);
 
     const stateMachineStart = eventHandlerTask.next(isEventValid);
 
